@@ -1,0 +1,12 @@
+{application, erlaudio,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { erlaudio_app, []}},
+  {env, []}
+ ]}.
