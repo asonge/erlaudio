@@ -34,11 +34,11 @@
 
 -type api_type() :: directsound | mme | asio | soundmanager | coreaudio | oss | alsa | al | beos | wdmks | jack | wasapi | audiosciencehpi | integer().
 -type pa_error() :: {error, atom()}.
--type format() :: float32 | int32 | int24 | int16 | int8 | uint8.
--type device_option() :: {channel, pos_integer()} | {sample_format, format()} | {latency, float()}.
+% THIS IS WRONG-type device_option() :: {channel, pos_integer()} | {sample_format, format()} | {latency, float()}.
+-type stream_option() :: noclip | nodither | nodrop_input.
 -opaque stream() :: reference().
 
--export_type([stream/0, device_option/0]).
+-export_type([stream/0, stream_option/0]).
 
 -on_load(init/0).
 
@@ -57,9 +57,17 @@ nif_stub_error(Line) ->
 init() ->
   PrivDir = case code:priv_dir(?MODULE) of
     {error, bad_name} ->
-      EbinDir = filename:dirname(code:which(?MODULE)),
-      AppPath = filename:dirname(EbinDir),
-      filename:join(AppPath, "priv");
+      try escript:script_name() of
+        Filename ->
+          AppPath = filename:dirname(Filename),
+          filename:join(AppPath, "priv")
+      catch
+        _:_ ->
+          EbinDir = filename:dirname(code:which(?MODULE)),
+          io:format("~p~n", [code:which(?MODULE)]),
+          AppPath = filename:dirname(EbinDir),
+          filename:join(AppPath, "priv")
+      end;
     Path ->
       Path
   end,
@@ -86,7 +94,7 @@ get_hostapi_count() ->
 get_hostapi_index_from_type(_Type) ->
   ?nif_stub.
 
--spec get_hostapi_info(Index :: integer) -> #erlaudio_hostapi_info{}.
+-spec get_hostapi_info(Index :: integer()) -> #erlaudio_hostapi_info{}.
 get_hostapi_info(_Index) ->
   ?nif_stub.
 
@@ -165,7 +173,7 @@ stream_is_stopped(_Ref) ->
 stream_is_active(_Ref) ->
     ?nif_stub.
 
--spec stream_opt_to_integer(Options :: [device_option()]) -> integer().
+-spec stream_opt_to_integer(Options :: [stream_option()]) -> integer().
 stream_opt_to_integer(Options) ->
     lists:foldl(fun
         (noclip, Acc) -> 1 band Acc;

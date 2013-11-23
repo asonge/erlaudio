@@ -158,3 +158,13 @@ static struct int_to_str pa_drivers[] = {
     { paAudioScienceHPI,   "audiosciencehpi" },
     { 0, 0 }
 };
+
+static struct int_to_str pa_types[] = {
+    { paFloat32, "float32" },
+    { paInt32,   "int32" },
+    { paInt24,   "int24" },
+    { paInt16,   "int16" },
+    { paInt8,    "int8" },
+    { paUInt8,   "uint8" },
+    { 0, 0 }
+};

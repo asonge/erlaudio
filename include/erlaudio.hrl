@@ -1,8 +1,9 @@
+-type format() :: float32 | int32 | int24 | int16 | int8 | uint8.
 
 -record(erlaudio_device, {
-    index :: integer(),
-    name :: binary(),
-    host_api :: integer(),
+    index = -1 :: integer(),
+    name = <<>> :: binary(),
+    host_api = -1 :: integer(),
     max_input_channels :: integer(),
     max_output_channels :: integer(),
     default_low_input_latency :: float(),
@@ -13,10 +14,10 @@
 }).
 
 -record(erlaudio_device_params, {
-	index :: integer(),
-	channel_count :: integer(),
-	sample_format :: integer(),
-	suggested_latency :: float()
+    index :: integer(),
+    channel_count :: integer(),
+    sample_format :: format(),
+    suggested_latency :: float()
 }).
 
 -record(erlaudio_stream_info, {
