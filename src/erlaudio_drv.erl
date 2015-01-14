@@ -64,7 +64,6 @@ init() ->
       catch
         _:_ ->
           EbinDir = filename:dirname(code:which(?MODULE)),
-          io:format("~p~n", [code:which(?MODULE)]),
           AppPath = filename:dirname(EbinDir),
           filename:join(AppPath, "priv")
       end;

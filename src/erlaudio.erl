@@ -9,7 +9,7 @@
 -export([portaudio_version/0]).
 
 -type pa_error() :: {error, atom()}.
--type stream_option() :: noclip | nodither | nodrop_input.
+-type stream_option() :: noclip | nodither | nodropinput.
 
 %% @doc Gets you the default input device
 -spec default_input_device() -> #erlaudio_device{}.
@@ -106,11 +106,10 @@ format_supported(Input, Output, SampleRate) ->
     Output :: #erlaudio_device_params{} | null | undefined,
     SampleRate :: float(),
     FramesPerBuffer :: integer(),
-    Options :: [stream_option()]
+    Flags :: [stream_option()]
 ) -> {ok, pid()}.
-open_stream(Input, Output, SampleRate, FramesPerBuffer, Options) ->
-  Flags = erlaudio_drv:stream_opt_to_integer(Options),
-  erlaudio_srv:start(Input, Output, SampleRate, FramesPerBuffer, Flags).
+open_stream(Input, Output, SampleRate, FramesPerBuffer, Flags) ->
+  erlaudio_drv:open(Input, Output, SampleRate, FramesPerBuffer, Flags).
 
 %% @doc start_link a stream server
 -spec open_stream_link(
@@ -118,11 +117,10 @@ open_stream(Input, Output, SampleRate, FramesPerBuffer, Options) ->
     Output :: #erlaudio_device_params{} | null | undefined,
     SampleRate :: float(),
     FramesPerBuffer :: integer(),
-    Options :: [erlaudio_drv:stream_option()]
+    Flags :: [erlaudio_drv:stream_option()]
 ) -> {ok, pid()}.
-open_stream_link(Input, Output, SampleRate, FramesPerBuffer, Options) ->
-  Flags = erlaudio_drv:stream_opt_to_integer(Options),
-  erlaudio_srv:start_link(Input, Output, SampleRate, FramesPerBuffer, Flags).
+open_stream_link(Input, Output, SampleRate, FramesPerBuffer, Flags) ->
+  erlaudio_drv:start_link(Input, Output, SampleRate, FramesPerBuffer, Flags).
 
 %% @doc stop/destroy a stream server, ignoring any remaining buffers
 abort_stream(Pid) when is_pid(Pid) ->
@@ -140,5 +138,3 @@ close_stream(Pid, Timeout) when is_pid(Pid) andalso is_integer(Timeout) ->
 -spec portaudio_version() -> {integer(), binary()}.
 portaudio_version() ->
   erlaudio_drv:get_pa_version().
-
-

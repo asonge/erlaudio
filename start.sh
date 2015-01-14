@@ -1,3 +1,3 @@
 #!/bin/sh
 
-erl -pa ../erlaudio/ebin
+erl -pa ../erlaudio/ebin deps/*/ebin
