@@ -21,12 +21,12 @@ struct err_to_str {
     const char *str;
 };
 
-struct erlaudio_binqueue {
-    ErlNifBinary** bins;
-    size_t size;
+struct erlaudio_ringbuf
+{
+    unsigned char *data;
+    size_t length;
     size_t head;
     size_t tail;
-    size_t head_cursor;
 };
 
 struct erlaudio_stream_handle
@@ -53,7 +53,7 @@ struct erlaudio_stream_handle
     unsigned short input_frame_size;
     unsigned short input_sample_size;
 
-    struct erlaudio_binqueue output_queue;
+    struct erlaudio_ringbuf output_buf;
 
     uint8_t total_samples;
 
