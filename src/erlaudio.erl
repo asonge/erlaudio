@@ -2,14 +2,37 @@
 
 -include_lib("erlaudio/include/erlaudio.hrl").
 
--export([default_input_device/0, default_output_device/0, device/1, devices/0]).
--export([default_input_params/1, default_output_params/1, input_device_params/2, output_device_params/2, device_params/4]).
--export([format_supported/3, open_stream/5, open_stream_link/5]).
--export([abort_stream/1, close_stream/1]).
--export([portaudio_version/0]).
+-export([
+  default_input_device/0,
+  default_output_device/0,
+  device/1,
+  devices/0
+]).
+-export([
+  default_input_params/1,
+  default_output_params/1,
+  input_device_params/2,
+  output_device_params/2,
+  device_params/4
+]).
+-export([
+  stream_format_supported/3,
+  stream_open/5,
+  stream_start/1,
+  stream_info/1,
+  stream_recv/1,
+  stream_write/2,
+  stream_abort/1,
+  stream_close/1,
+  stream_active/1,
+  stream_stopped/1
+]).
+-export([
+  portaudio_version/0
+]).
 
 -type pa_error() :: {error, atom()}.
--type stream_option() :: noclip | nodither | nodrop_input.
+-type stream_option() :: noclip | nodither | nodropinput.
 
 %% @doc Gets you the default input device
 -spec default_input_device() -> #erlaudio_device{}.
@@ -91,54 +114,53 @@ device_params(#erlaudio_device{index=Index}=_Device, Channels, SampleFormat, Sug
     suggested_latency=SuggestedLatency
   }.
 
+stream_write(Handle, Data) ->
+  erlaudio_drv:stream_write(Handle, Data).
+
+stream_recv(Handle) ->
+  receive
+    {erlaudio_pcmdata, Handle, Data} -> {ok, Data};
+    {erlaudio_error, Handle, Error} -> {error, Error}
+  % As a hack, every second we don't have data, we should probably check to see
+  % if we've still got a listening handle
+  after 1000 ->
+    case erlaudio_drv:stream_is_active(Handle) of
+      true -> stream_recv(Handle); % We loop forever.
+      false -> {error, stream_closed};
+      {error, Reason} -> {error, Reason}
+    end
+  end.
+
 %% @doc Check if your combination of parameters is supported
--spec format_supported(
+-spec stream_format_supported(
     Input :: #erlaudio_device_params{} | null | undefined,
     Output :: #erlaudio_device_params{} | null | undefined,
     SampleRate :: float()
 ) -> ok | pa_error().
-format_supported(Input, Output, SampleRate) ->
+stream_format_supported(Input, Output, SampleRate) ->
   erlaudio_drv:stream_format_supported(Input, Output, SampleRate).
 
 %% @doc start a stream server
--spec open_stream(
+-spec stream_open(
     Input :: #erlaudio_device_params{} | null | undefined,
     Output :: #erlaudio_device_params{} | null | undefined,
     SampleRate :: float(),
     FramesPerBuffer :: integer(),
-    Options :: [stream_option()]
+    Flags :: [stream_option()]
 ) -> {ok, pid()}.
-open_stream(Input, Output, SampleRate, FramesPerBuffer, Options) ->
-  Flags = erlaudio_drv:stream_opt_to_integer(Options),
-  erlaudio_srv:start(Input, Output, SampleRate, FramesPerBuffer, Flags).
+stream_open(Input, Output, SampleRate, FramesPerBuffer, Flags) ->
+  erlaudio_drv:stream_open(Input, Output, SampleRate, FramesPerBuffer, Flags).
 
-%% @doc start_link a stream server
--spec open_stream_link(
-    Input :: #erlaudio_device_params{} | null | undefined,
-    Output :: #erlaudio_device_params{} | null | undefined,
-    SampleRate :: float(),
-    FramesPerBuffer :: integer(),
-    Options :: [erlaudio_drv:stream_option()]
-) -> {ok, pid()}.
-open_stream_link(Input, Output, SampleRate, FramesPerBuffer, Options) ->
-  Flags = erlaudio_drv:stream_opt_to_integer(Options),
-  erlaudio_srv:start_link(Input, Output, SampleRate, FramesPerBuffer, Flags).
-
+stream_start(Handle)   -> erlaudio_drv:stream_start(Handle).
 %% @doc stop/destroy a stream server, ignoring any remaining buffers
-abort_stream(Pid) when is_pid(Pid) ->
-  gen_server:cast(Pid, abort).
-
+stream_abort(Handle)   -> erlaudio_drv:stream_abort(Handle).
 %% @doc stop/destroy a stream server, wait for buffers to flush
-close_stream(Pid) when is_pid(Pid) ->
-  close_stream(Pid, 30000).
-
-%% @doc stop/destroy a stream server, wait for buffers to flush
-close_stream(Pid, Timeout) when is_pid(Pid) andalso is_integer(Timeout) ->
-  gen_server:call(Pid, close, Timeout).
+stream_close(Handle)   -> erlaudio_drv:stream_close(Handle).
+%% @doc get stream info
+stream_info(Handle)    -> erlaudio_drv:stream_info(Handle).
+stream_active(Handle)  -> erlaudio_drv:stream_is_active(Handle).
+stream_stopped(Handle) -> erlaudio_drv:stream_is_stopped(Handle).
 
 %% @doc Return version information for the portaudio we're linked to
 -spec portaudio_version() -> {integer(), binary()}.
-portaudio_version() ->
-  erlaudio_drv:get_pa_version().
-
-
+portaudio_version()    -> erlaudio_drv:get_pa_version().

@@ -2,16 +2,31 @@
 #include "stdint.h"
 
 struct int_to_str {
-    int num;
+    PaSampleFormat num;
     const char *str;
 };
 
-struct erlaudio_binqueue {
-    ErlNifBinary** bins;
-    size_t size;
+struct sflags_to_str {
+    PaStreamFlags num;
+    const char *str;
+};
+
+struct api_to_str {
+    PaHostApiTypeId num;
+    const char *str;
+};
+
+struct err_to_str {
+    PaError num;
+    const char *str;
+};
+
+struct erlaudio_ringbuf
+{
+    unsigned char *data;
+    size_t length;
     size_t head;
     size_t tail;
-    size_t head_cursor;
 };
 
 struct erlaudio_stream_handle
@@ -20,28 +35,28 @@ struct erlaudio_stream_handle
     ErlNifThreadOpts* thread_opts;
     ErlNifCond*  cnd;
     ErlNifMutex* mtx;
-    
+
     // Stream related
     PaStream* pa;
     PaStreamParameters* input;
     PaStreamParameters* output;
-    
+
     int flags;
-    
+
     double sample_rate;
     unsigned long frames_per_buffer;
     // Erlang-land related
     ErlNifPid* owner_pid;
     ErlNifPid* reader_pid;
-    
+
     // Buffers and pre-calc values
     unsigned short input_frame_size;
     unsigned short input_sample_size;
-    
-    struct erlaudio_binqueue output_queue;
-    
+
+    struct erlaudio_ringbuf output_buf;
+
     uint8_t total_samples;
-    
+
     unsigned short output_frame_size;
     unsigned short output_sample_size;
 };
@@ -107,7 +122,7 @@ static ErlNifFunc nif_funcs[] =
     {"stream_is_active",                1, erlaudio_stream_is_active}
 };
 
-static struct int_to_str pa_errors[] = {
+static struct err_to_str pa_errors[] = {
     { paNotInitialized,                        "not_initialized" },
     { paNotInitialized,                        "not_initialized" },
     { paUnanticipatedHostError,                "unanticipated_host_error" },
@@ -141,7 +156,7 @@ static struct int_to_str pa_errors[] = {
     { 0, 0 }
 };
 
-static struct int_to_str pa_drivers[] = {
+static struct api_to_str pa_drivers[] = {
     { paInDevelopment,     "indevelopment" },
     { paDirectSound,       "directsound" },
     { paMME,               "mme" },
@@ -167,4 +182,11 @@ static struct int_to_str pa_types[] = {
     { paInt8,    "int8" },
     { paUInt8,   "uint8" },
     { 0, 0 }
+};
+
+static struct sflags_to_str pa_flags[] = {
+    { paClipOff,        "noclip" },
+    { paDitherOff,      "nodither" },
+    { paNeverDropInput, "nodropinput" },
+    { paNoFlag, 0 }
 };

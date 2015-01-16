@@ -1,7 +1,8 @@
 c_src/*.o
 priv/*.so
 ebin/*
-priv/erlaudio_drv.*
-*.pdb
-.rebar
+/erlaudio
 deps
+.rebar
+*.pdb
+priv/erlaudio_drv.*

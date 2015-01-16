@@ -16,7 +16,6 @@
 ]).
 -export([
   stream_format_supported/3,
-  stream_opt_to_integer/1,
   stream_open/5,
   stream_start/1,
   stream_owner/1,
@@ -64,7 +63,6 @@ init() ->
       catch
         _:_ ->
           EbinDir = filename:dirname(code:which(?MODULE)),
-          io:format("~p~n", [code:which(?MODULE)]),
           AppPath = filename:dirname(EbinDir),
           filename:join(AppPath, "priv")
       end;
@@ -172,19 +170,3 @@ stream_is_stopped(_Ref) ->
 -spec stream_is_active(Stream :: stream()) -> boolean().
 stream_is_active(_Ref) ->
     ?nif_stub.
-
--spec stream_opt_to_integer(Options :: [stream_option()]) -> integer().
-stream_opt_to_integer(Options) ->
-    lists:foldl(fun
-        (noclip, Acc) -> 1 band Acc;
-        (nodither, Acc) -> 2 band Acc;
-        (nodrop_input, Acc) -> 4 band Acc
-    end, 0, Options).
-
-
-%% ===================================================================
-%% EUnit tests
-%% ===================================================================
--ifdef(TEST).
-
--endif.
