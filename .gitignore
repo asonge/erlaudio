@@ -2,4 +2,7 @@ c_src/*.o
 priv/*.so
 ebin/*
 /erlaudio
-deps/*
+deps
+.rebar
+*.pdb
+priv/erlaudio_drv.*
