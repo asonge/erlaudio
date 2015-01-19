@@ -44,6 +44,11 @@ main(["pipe",Input,Output,Time]) ->
   erlang:send_after(list_to_integer(Time)*1000, self(), timeout),
   ok = erlaudio:stream_start(Handle),
   listen_pipe(Handle);
+main(["flag"]) -> main(["flag","60"]);
+main(["flag",Time]) ->
+  % observer:start(),
+  erlang:send_after(list_to_integer(Time)*1000, self(), timeout),
+  listen_flag();
 main(["version"]) ->
   {_, Version} = erlaudio:portaudio_version(),
   io:put_chars([Version, "\n"]);
@@ -58,6 +63,55 @@ stream_write(Handle, Data, Tries) ->
     {error, toobig} ->
       timer:sleep(1),
       stream_write(Handle, Data, Tries-1)
+  end.
+
+flush(H, Count) ->
+  receive {erlaudio_pcmdata, H, _} -> flush(H, Count+1)
+  after 0 -> Count
+  end.
+
+% mem_stats() ->
+%   [[$\t,integer_to_list(recon_alloc:memory(T,C))] || T <- [used,allocated,unused], C <- [current, max]].
+% mem_stats2() ->
+%   lists:sort([ io_lib:format("~p ~s~n", [{Alloc,N}, format_stats(Stats)])
+%      || {{Alloc,N},Stats} <- recon_alloc:fragmentation(current),
+%         Alloc /= ll_alloc, Alloc /= ets_alloc]).
+%
+% format_stats(Stats) ->
+%   io_lib:format("~p ~p", [proplists:get_value(sbcs_usage,Stats),
+%                       proplists:get_value(mbcs_usage,Stats)]).
+
+
+malloc_stats() ->
+  Calls = [ {Type,proplists:get_value(calls,Mem)}
+            || {{driver_alloc,_}=Type,Mem} <- recon_alloc:allocators() ],
+  CallInfo = [ {Type,
+                lists:keyfind(driver_alloc,1,C),
+                lists:keyfind(driver_free,1,C)} || {Type,C} <- Calls ],
+  lists:foldl(fun ({_,{_,_,Alloc},{_,_,Free}}, {Allocs, Frees}) ->
+                {Allocs+Alloc,Frees+Free}
+              end, {0,0}, CallInfo).
+
+listen_flag() ->
+  Input  = erlaudio:default_input_params (int16),
+  Output = erlaudio:default_output_params(int16),
+  {ok, H} = erlaudio:stream_open(Input, Output, 48000.0, 2048, []),
+  erlaudio:stream_start(H),
+  timer:sleep(100),
+  erlaudio:stream_close(H),
+  % io:format("Grabbed ~p\t~p\t~p\t~p\t~p~n",[
+  %   flush(H, 0),
+  %   recon_alloc:memory(used,current),
+  %   recon_alloc:memory(used,max),
+  %   recon_alloc:memory(allocated,current),
+  %   recon_alloc:memory(allocated,max)
+  % ]),
+  {Allocs,Frees} = malloc_stats(),
+  io:format("Flush/Allocs/Frees/Diff: ~p\t~p\t~p\t~p~n", [flush(H,0),Allocs,Frees,Allocs-Frees]),
+  % io:put_chars([mem_stats2(),$\n]),
+  case should_stop() of
+    true -> ok;
+    false -> listen_flag()
   end.
 
 listen_pipe(Handle) ->
