@@ -31,10 +31,9 @@ struct erlaudio_ringbuf
 
 struct erlaudio_stream_handle
 {
+    struct erlaudio_thread_mgr* mgr;
+
     ErlNifTid    thread;
-    ErlNifThreadOpts* thread_opts;
-    ErlNifCond*  cnd;
-    ErlNifMutex* mtx;
 
     // Stream related
     PaStream* pa;
@@ -53,7 +52,7 @@ struct erlaudio_stream_handle
     unsigned short input_frame_size;
     unsigned short input_sample_size;
 
-    struct erlaudio_ringbuf output_buf;
+    struct erlaudio_ringbuf *output_buf;
 
     uint8_t total_samples;
 

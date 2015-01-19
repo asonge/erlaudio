@@ -123,7 +123,7 @@ stream_recv(Handle) ->
     {erlaudio_error, Handle, Error} -> {error, Error}
   % As a hack, every second we don't have data, we should probably check to see
   % if we've still got a listening handle
-  after 1000 ->
+  after 2000 ->
     case erlaudio_drv:stream_is_active(Handle) of
       true -> stream_recv(Handle); % We loop forever.
       false -> {error, stream_closed};

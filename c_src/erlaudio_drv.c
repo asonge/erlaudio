@@ -7,7 +7,6 @@
 #include "erlaudio_drv.h"
 #include "assert.h"
 
-
 static void erlaudio_ringbuf_init(struct erlaudio_ringbuf *buf, size_t length) {
     // printf("Initing for %zu\n", length);
     buf->length = length;
@@ -17,29 +16,12 @@ static void erlaudio_ringbuf_init(struct erlaudio_ringbuf *buf, size_t length) {
 }
 
 static void erlaudio_ringbuf_destroy(struct erlaudio_ringbuf *buf) {
-    if(buf->length && buf->data) {
-        // printf("FREE DATA?\n");
+    if(buf!=NULL && buf->length && buf->data != NULL) {
         enif_free(buf->data);
+        buf->length = 0;
+        buf->data = NULL;
     }
 }
-
-/*
-Space: length-(tail-head)
-       20-(12-5)=13
-Data:  tail-head
-       12-5=7
-====XXXXXXX========
-    ^head  ^tail
-
-
-Space: head-tail
-       12-5=7
-Data:  length-(head-tail)
-       20-(12-5)=13
-XXXX=======XXXXXXXX
-    ^tail  ^head
-
-*/
 
 static size_t erlaudio_ringbuf_avail_space(struct erlaudio_ringbuf *buf) {
     if(buf->head > buf->tail)  return buf->head - buf->tail - 1;
@@ -74,16 +56,26 @@ static struct erlaudio_stream_handle* erlaudio_stream_handle_alloc() {
     handle->reader_pid = (ErlNifPid *) enif_alloc(sizeof(ErlNifPid));
     handle->input = NULL;
     handle->output = NULL;
+    handle->pa = NULL;
+    handle->output_buf = enif_alloc(sizeof(struct erlaudio_ringbuf));
+    handle->output_buf->data = NULL;
     return handle;
 }
 
 static void erlaudio_stream_resource_cleanup(ErlNifEnv* env, void* arg) {
-    printf("Resource cleanup...\n");
     struct erlaudio_stream_handle* handle = (struct erlaudio_stream_handle*) arg;
+    // Stop, just in case, to cause thread to end.
+    Pa_AbortStream(handle->pa);
+    enif_thread_join(handle->thread, NULL);
     if(handle->pa) Pa_CloseStream(handle->pa);
-    if(handle->owner_pid)  enif_free(handle->owner_pid);
+    if(handle->input)  enif_free( handle->input);
+    if(handle->output) enif_free(handle->output);
+    if(handle->owner_pid)  enif_free( handle->owner_pid);
     if(handle->reader_pid) enif_free(handle->reader_pid);
-    erlaudio_ringbuf_destroy(&handle->output_buf);
+    if(handle->output_buf) {
+        erlaudio_ringbuf_destroy(handle->output_buf);
+        enif_free(handle->output_buf);
+    }
 }
 
 static int get_stream_handle(ErlNifEnv* env,
@@ -225,7 +217,9 @@ convert_tuple_to_stream_params(ErlNifEnv* env, ERL_NIF_TERM term, PaStreamParame
     return 1;
 }
 
-static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
+static int on_load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info) {
+    PaError err;
+    // struct erlaudio_thread_mgr* thread_mgr;
     ErlNifResourceFlags flags = ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER;
     ErlNifResourceType* rt = enif_open_resource_type(env, NULL,
                                                      "ERLAUDIO_STREAM_RESOURCE",
@@ -233,7 +227,13 @@ static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
                                                      flags, NULL);
     if (rt == NULL) return -1;
     ERLAUDIO_STREAM_RESOURCE = rt;
-    return Pa_Initialize();
+
+    err = Pa_Initialize();
+    if(err!=paNoError) {
+        return err;
+    }
+
+    return 0;
 }
 
 static void on_unload(ErlNifEnv* env, void* priv_data) {
@@ -242,136 +242,112 @@ static void on_unload(ErlNifEnv* env, void* priv_data) {
 
 ERL_NIF_INIT(erlaudio_drv, nif_funcs, &on_load, NULL, NULL, &on_unload);
 
-/**
- * The callback of the main loop of the processing thread
- */
-static int erlaudio_thread_stream_exec(struct erlaudio_stream_handle* h) {
+static int erlaudio_thread_stream_input(struct erlaudio_stream_handle* h) {
     signed long frames_available;
     signed long bytes_available;
-    size_t bytes_to_write_available;
-    struct erlaudio_ringbuf* buf = &h->output_buf;
-    size_t head_read = 0;
-    size_t head = buf->head;
-
     ErlNifEnv* env;
     int err;
     ErlNifBinary input_bin;
-    if(h->input) {
-        // printf("I");
-        if ((frames_available = Pa_GetStreamReadAvailable(h->pa)) > 0) {
-            // printf("i");
-            // If input is enabled, check for new input capture
-            ErlNifBinary input_bin;
-            bytes_available = frames_available * h->input_frame_size;
-            if(!enif_alloc_binary(bytes_available, &input_bin)) {
-                // We have to alloc a new thing for the thing.
-                return -1;
-            }
-            err = Pa_ReadStream(h->pa, input_bin.data, frames_available);
-            if(err==paNoError) {
-                env = enif_alloc_env();
-                enif_send(NULL, h->reader_pid, env, enif_make_tuple3(env,
-                    enif_make_atom(env, "erlaudio_pcmdata"),
-                    enif_make_resource(env, h),
-                    enif_make_binary(env, &input_bin)
-                ));
-                enif_free_env(env);
-                enif_release_binary(&input_bin);
-            } else {
-                enif_release_binary(&input_bin);
-                // printf("\nRead Error %d\n", err);
-                // Tell the reader we've had an error
-                pa_error_message(h, err, h->reader_pid);
-                // Tell the owner if the owner is someone else
-                if(h->reader_pid != h->owner_pid) {
-                    pa_error_message(h, err, h->owner_pid);
-                }
-                return -1;
-            }
-        }
-        if(frames_available < 0) {
-            // printf("\nRead Error2 %d\n", err);
-            pa_error_message(h, frames_available, h->owner_pid);
-        }
+
+    if(!h->input) {
+        return 1;
     }
-    if(h->output) {
-        // printf("O");
-        // Make sure we have data to write as well)
-        frames_available = Pa_GetStreamWriteAvailable(h->pa);
-        if(frames_available < 0) {
-            pa_error_message(h, frames_available, h->owner_pid);
+
+    if ((frames_available = Pa_GetStreamReadAvailable(h->pa)) > 0) {
+        bytes_available = frames_available * h->input_frame_size;
+        if(!enif_alloc_binary(bytes_available, &input_bin)) {
             return -1;
         }
-        bytes_to_write_available = erlaudio_ringbuf_avail_data(buf);
-        while(bytes_to_write_available > 0 && frames_available > 0) {
-            bytes_available = frames_available * h->output_frame_size;
-            // printf("o");
-            // printf("o: %zu %ld", bytes_to_write_available, bytes_available);
-            bytes_to_write_available = bytes_to_write_available > bytes_available ? bytes_available : bytes_to_write_available;
-            // printf(" %zu\n", bytes_to_write_available);
-            // printf("Settings: %zu %zu\n", buf->head, buf->tail);
-            // assert(bytes_to_write_available <= erlaudio_ringbuf_avail_data(buf));
-            head_read = 0;
-            head = buf->head;
-            if(buf->head + bytes_to_write_available > buf->length) {
-                head_read = buf->length - buf->head;
-                err = Pa_WriteStream(h->pa, &buf->data[head], head_read / h->output_frame_size);
-                assert(head_read % h->output_frame_size == 0);
-                if(err!=paNoError) {
-                    pa_error_message(h, err, h->owner_pid);
-                    return -1;
-                }
-                head = 0;
+        err = Pa_ReadStream(h->pa, input_bin.data, frames_available);
+        if(err==paNoError) {
+            env = enif_alloc_env();
+            enif_send(NULL, h->reader_pid, env, enif_make_tuple3(env,
+                enif_make_atom(env, "erlaudio_pcmdata"),
+                enif_make_resource(env, h),
+                enif_make_binary(env, &input_bin)
+            ));
+            enif_release_binary(&input_bin);
+            enif_free_env(env);
+        } else {
+            enif_release_binary(&input_bin);
+            // printf("\nRead Error %d\n", err);
+            // Tell the reader we've had an error
+            pa_error_message(h, err, h->reader_pid);
+            // Tell the owner if the owner is someone else
+            if(h->reader_pid != h->owner_pid) {
+                pa_error_message(h, err, h->owner_pid);
             }
-            err = Pa_WriteStream(h->pa, &buf->data[head], (bytes_to_write_available - head_read) / h->output_frame_size);
+            return -1;
+        }
+    }
+    if(frames_available < 0) {
+        pa_error_message(h, frames_available, h->owner_pid);
+        return -1;
+    }
+    return 1;
+}
+
+static int erlaudio_thread_stream_output(struct erlaudio_stream_handle* h) {
+    signed long frames_available;
+    signed long bytes_available;
+    size_t bytes_to_write_available;
+    struct erlaudio_ringbuf* buf = h->output_buf;
+    size_t head_read = 0;
+    size_t head = buf->head;
+    int err;
+
+    if(!h->output) {
+        return 1;
+    }
+
+    frames_available = Pa_GetStreamWriteAvailable(h->pa);
+    if(frames_available < 0) {
+        pa_error_message(h, frames_available, h->owner_pid);
+        return -1;
+    }
+    bytes_to_write_available = erlaudio_ringbuf_avail_data(buf);
+    while(bytes_to_write_available > 0 && frames_available > 0) {
+        bytes_available = frames_available * h->output_frame_size;
+
+        bytes_to_write_available = bytes_to_write_available > bytes_available ? bytes_available : bytes_to_write_available;
+
+        head_read = 0;
+        head = buf->head;
+        if(buf->head + bytes_to_write_available > buf->length) {
+            head_read = buf->length - buf->head;
+            err = Pa_WriteStream(h->pa, &buf->data[head], head_read / h->output_frame_size);
+            assert(head_read % h->output_frame_size == 0);
             if(err!=paNoError) {
                 pa_error_message(h, err, h->owner_pid);
                 return -1;
             }
-            buf->head = (buf->head + bytes_to_write_available) % buf->length;
-            // printf("Settings: %zu %zu\n", buf->head, buf->tail);
-            bytes_to_write_available = erlaudio_ringbuf_avail_data(buf);
-            frames_available = Pa_GetStreamWriteAvailable(h->pa);
+            head = 0;
         }
-    }
-    if(h->input) {
-        // printf("I");
-        if ((frames_available = Pa_GetStreamReadAvailable(h->pa)) > 0) {
-            // printf("i");
-            // If input is enabled, check for new input capture
-            bytes_available = frames_available * h->input_frame_size;
-            if(!enif_alloc_binary(bytes_available, &input_bin)) {
-                // We have to alloc a new thing for the thing.
-                return -1;
-            }
-            err = Pa_ReadStream(h->pa, input_bin.data, frames_available);
-            if(err==paNoError) {
-                env = enif_alloc_env();
-                enif_send(NULL, h->reader_pid, env, enif_make_tuple3(env,
-                    enif_make_atom(env, "erlaudio_pcmdata"),
-                    enif_make_resource(env, h),
-                    enif_make_binary(env, &input_bin)
-                ));
-                enif_free_env(env);
-                enif_release_binary(&input_bin);
-            } else {
-                enif_release_binary(&input_bin);
-                // printf("\nRead Error %d\n", err);
-                // Tell the reader we've had an error
-                pa_error_message(h, err, h->reader_pid);
-                // Tell the owner if the owner is someone else
-                if(h->reader_pid != h->owner_pid) {
-                    pa_error_message(h, err, h->owner_pid);
-                }
-                return -1;
-            }
+        err = Pa_WriteStream(h->pa, &buf->data[head], (bytes_to_write_available - head_read) / h->output_frame_size);
+        if(err!=paNoError) {
+            pa_error_message(h, err, h->owner_pid);
+            return -1;
         }
-        if(frames_available < 0) {
-            // printf("\nRead Error2 %d\n", err);
-            pa_error_message(h, frames_available, h->owner_pid);
-        }
+        buf->head = (buf->head + bytes_to_write_available) % buf->length;
+        
+        bytes_to_write_available = erlaudio_ringbuf_avail_data(buf);
+        frames_available = Pa_GetStreamWriteAvailable(h->pa);
     }
     return 1;
+}
+
+/**
+ * The callback of the main loop of the processing thread
+ */
+static int erlaudio_thread_stream_exec(struct erlaudio_stream_handle* h) {
+
+    if(erlaudio_thread_stream_input(h)!=1
+        || erlaudio_thread_stream_output(h)!=1
+        || erlaudio_thread_stream_input(h)!=1) {
+        return -1;
+    }
+    return 1;
+
 }
 
 /**
@@ -384,39 +360,25 @@ static void* erlaudio_thread_stream_main(void* data) {
     int loop = 1;
     int err;
     PaTime time1, time2;
-    // if(h->output && h->input) {
-    //   to_sleep = (info->inputLatency < info->outputLatency ? info->inputLatency : info->outputLatency) * 1000;
-    // } else if(h->input) {
-    //   to_sleep = info->inputLatency*100;
-    // } else if(h->output) {
-    //   to_sleep = info->outputLatency*100;
-    // } else {
-    //   to_sleep = 100;
-    // }
     to_sleep = 10;
+
     err = Pa_StartStream(h->pa);
     if(err!=paNoError) {
-      pa_error_message(h, err, h->owner_pid);
-      Pa_CloseStream(h->pa);
-      h->pa = NULL;
       return NULL;
     }
-    while(loop && h->pa!=NULL) {
+    assert(1==Pa_IsStreamActive(h->pa));
+    while(loop && h->pa!=NULL && Pa_IsStreamActive(h->pa)) {
         time1 = Pa_GetStreamTime(h->pa);
         loop = erlaudio_thread_stream_exec(h) > 0;
         time2 = Pa_GetStreamTime(h->pa);
-        // Pa_Sleep((long) (to_sleep - (time2 - time1) * 100));
-        // if(to_sleep > (time2 - time1) * 1000) {
-        //   Pa_Sleep((long) (to_sleep - (time2 - time1) * 100));
-        // }
-        Pa_Sleep(10);
-    };
-    if(h->pa!=NULL) {
-      Pa_StopStream(h->pa);
-      Pa_CloseStream(h->pa);
-      h->pa = NULL;
+        Pa_Sleep(5);
     }
     return NULL;
+}
+
+static int erlaudio_thread_start(struct erlaudio_stream_handle* handle) {
+  return enif_thread_create("erlaudio_thread", &handle->thread,
+              erlaudio_thread_stream_main, handle, NULL);
 }
 
 /**
@@ -580,14 +542,16 @@ static ERL_NIF_TERM erlaudio_stream_format_supported(ErlNifEnv* env, int argc, c
         || !convert_tuple_to_stream_params(env, argv[0], &input)
         || !convert_tuple_to_stream_params(env, argv[1], &output)
         || !enif_get_double(env,   argv[2], &sample_rate)
-        // I know it's confusing, but inside the !, we must assert things we
-        // wish to be true to not fall into the error case
-        // || !(input ==NULL && input->channelCount  < Pa_GetDeviceInfo(input->device) ->maxInputChannels )
-        // || !(output!=NULL && output->channelCount < Pa_GetDeviceInfo(output->device)->maxOutputChannels)
     ) {
+        if(input!=NULL)  enif_free(input);
+        if(output!=NULL) enif_free(output);
         return enif_make_badarg(env);
     }
+
     err = Pa_IsFormatSupported(input, output, sample_rate);
+
+    if(input!=NULL)  enif_free(input);
+    if(output!=NULL) enif_free(output);
     if(err!=paFormatIsSupported) {
         return pa_error_to_error_tuple(env, err);
     }
@@ -598,7 +562,6 @@ static ERL_NIF_TERM erlaudio_stream_format_supported(ErlNifEnv* env, int argc, c
  * Open a stream resource
  */
 static ERL_NIF_TERM erlaudio_stream_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-
     unsigned long flags;
     int err;
     int ret;
@@ -610,6 +573,8 @@ static ERL_NIF_TERM erlaudio_stream_open(ErlNifEnv* env, int argc, const ERL_NIF
         || !enif_get_ulong (env, argv[3], &handle->frames_per_buffer)
         || !list_to_stream_flags(env, argv[4], &flags)
     ) {
+        // Gives ownership back to Erlang-land.
+        enif_release_resource(handle);
         return enif_make_badarg(env);
     }
     if(handle->input!=NULL) {
@@ -623,12 +588,10 @@ static ERL_NIF_TERM erlaudio_stream_open(ErlNifEnv* env, int argc, const ERL_NIF
         handle->output_sample_size = Pa_GetSampleSize(handle->output->sampleFormat);
         handle->output_frame_size = handle->output_sample_size * handle->output->channelCount;
         // 3 seconds seems like a reasonable time for the size of the buffer, no?
-        unsigned char *prefill = enif_alloc(sizeof(unsigned char*)*handle->frames_per_buffer*handle->output_frame_size);
-        memset(prefill, 0, handle->frames_per_buffer*handle->output_frame_size);
-        erlaudio_ringbuf_init(&handle->output_buf, handle->output_frame_size * handle->sample_rate * 3);
-        erlaudio_ringbuf_write(&handle->output_buf, prefill, handle->frames_per_buffer*handle->output_frame_size);
-        enif_free(prefill);
-    } else {
+        erlaudio_ringbuf_init(handle->output_buf, handle->output_frame_size * handle->sample_rate * 3);
+        memset(handle->output_buf->data, 0, handle->frames_per_buffer*handle->output_frame_size);
+        handle->output_buf->tail = handle->frames_per_buffer*handle->output_frame_size;
+      } else {
         handle->output_sample_size = 0;
         handle->output_frame_size = 0;
     }
@@ -636,18 +599,20 @@ static ERL_NIF_TERM erlaudio_stream_open(ErlNifEnv* env, int argc, const ERL_NIF
     err = Pa_OpenStream(&handle->pa, handle->input, handle->output,
                         handle->sample_rate, handle->frames_per_buffer, flags,
                         NULL, NULL);
+    handle->mgr = (struct erlaudio_thread_mgr *) enif_priv_data(env);
     if(err!=paNoError) {
+        // Gives ownership back to Erlang-land.
+        enif_release_resource(handle);
         return pa_error_to_error_tuple(env, err);
     }
     enif_self(env, handle->owner_pid);
     enif_self(env, handle->reader_pid);
-
-    // TODO: write the code that adds in the ErlNifBinary.
     ret = enif_make_tuple2(
         env,
         enif_make_atom(env, "ok"),
         enif_make_resource(env, handle)
     );
+    // Gives ownership back to Erlang-land.
     enif_release_resource(handle);
     return ret;
 }
@@ -658,15 +623,11 @@ static ERL_NIF_TERM erlaudio_stream_open(ErlNifEnv* env, int argc, const ERL_NIF
 static ERL_NIF_TERM erlaudio_stream_start(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     int err;
     struct erlaudio_stream_handle* handle;
-
-    if(argc != 1 || !get_stream_handle(env, argv[0], &handle))
-    {
+    if(argc != 1 || !get_stream_handle(env, argv[0], &handle)){
         return enif_make_badarg(env);
     }
 
-    handle->thread_opts = enif_thread_opts_create("erlaudio_thread_opts");
-    err = enif_thread_create("erlaudio_thread", &handle->thread,
-                erlaudio_thread_stream_main, handle, handle->thread_opts);
+    err = erlaudio_thread_start(handle);
     if(err!=0) {
         return enif_make_tuple2(env,
             enif_make_atom(env, "error"),
@@ -685,9 +646,7 @@ static ERL_NIF_TERM erlaudio_stream_start(ErlNifEnv* env, int argc, const ERL_NI
  */
 static ERL_NIF_TERM erlaudio_stream_owner(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     struct erlaudio_stream_handle* handle;
-    if(argc < 1 || argc > 2
-        || !enif_get_resource(env, argv[0], ERLAUDIO_STREAM_RESOURCE, (void **) &handle))
-    {
+    if(argc < 1 || argc > 2 || !get_stream_handle(env, argv[0], &handle)) {
         return enif_make_badarg(env);
     }
     if(argc==1) {
@@ -704,9 +663,7 @@ static ERL_NIF_TERM erlaudio_stream_owner(ErlNifEnv* env, int argc, const ERL_NI
  */
 static ERL_NIF_TERM erlaudio_stream_reader(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     struct erlaudio_stream_handle* handle;
-    if(argc < 1 || argc > 2
-        || !enif_get_resource(env, argv[0], ERLAUDIO_STREAM_RESOURCE, (void **) &handle))
-    {
+    if(argc < 1 || argc > 2 || !get_stream_handle(env, argv[0], &handle)) {
         return enif_make_badarg(env);
     }
     if(argc==1) {
@@ -724,7 +681,7 @@ static ERL_NIF_TERM erlaudio_stream_reader(ErlNifEnv* env, int argc, const ERL_N
 static ERL_NIF_TERM erlaudio_stream_stop(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     int err;
     struct erlaudio_stream_handle* handle;
-    if(argc != 1 || !enif_get_resource(env, argv[0], ERLAUDIO_STREAM_RESOURCE, (void **) &handle)) {
+    if(argc != 1 || !get_stream_handle(env, argv[0], &handle)) {
         return enif_make_badarg(env);
     }
     err = Pa_StopStream(handle->pa);
@@ -741,14 +698,14 @@ static ERL_NIF_TERM erlaudio_stream_stop(ErlNifEnv* env, int argc, const ERL_NIF
 static ERL_NIF_TERM erlaudio_stream_close(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     int err;
     struct erlaudio_stream_handle* handle;
-    if(argc != 1 || !enif_get_resource(env, argv[0], ERLAUDIO_STREAM_RESOURCE, (void **) &handle)) {
+    if(argc != 1 || !get_stream_handle(env, argv[0], &handle)) {
       return enif_make_badarg(env);
     }
-    err = Pa_CloseStream(handle->pa);
+    //err = Pa_CloseStream(handle->pa);
+    err = Pa_AbortStream(handle->pa);
     if(err!=paNoError) {
       return pa_error_to_error_tuple(env, err);
     }
-    handle->pa = NULL;
     return enif_make_atom(env, "ok");
 }
 
@@ -758,7 +715,7 @@ static ERL_NIF_TERM erlaudio_stream_close(ErlNifEnv* env, int argc, const ERL_NI
 static ERL_NIF_TERM erlaudio_stream_abort(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     int err;
     struct erlaudio_stream_handle* handle;
-    if(argc != 1 || !enif_get_resource(env, argv[0], ERLAUDIO_STREAM_RESOURCE, (void **) &handle)) {
+    if(argc != 1 || !get_stream_handle(env, argv[0], &handle)) {
         return enif_make_badarg(env);
     }
     err = Pa_AbortStream(handle->pa);
@@ -777,11 +734,11 @@ static ERL_NIF_TERM erlaudio_stream_write(ErlNifEnv* env, int argc, const ERL_NI
     ErlNifBinary bin;
     // printf("WRITE DATA!\n");
     if(argc != 2
-        || !enif_get_resource(env, argv[0], ERLAUDIO_STREAM_RESOURCE, (void **) &h)
+        || !get_stream_handle(env, argv[0], &h)
         || !enif_inspect_iolist_as_binary(env, argv[1], &bin)) {
         return enif_make_badarg(env);
     }
-    buf = &h->output_buf;
+    buf = h->output_buf;
     // Must be evenly divisible by the frame size (sample format size * output channels)
     if(bin.size % h->output_frame_size != 0) {
         return enif_make_tuple2(env,
@@ -797,7 +754,6 @@ static ERL_NIF_TERM erlaudio_stream_write(ErlNifEnv* env, int argc, const ERL_NI
         );
     }
     erlaudio_ringbuf_write(buf, bin.data, bin.size);
-    printf("Settings: %zu %zu\n", buf->head, buf->tail);
     return enif_make_atom(env, "ok");
 }
 
@@ -807,7 +763,7 @@ static ERL_NIF_TERM erlaudio_stream_write(ErlNifEnv* env, int argc, const ERL_NI
 static ERL_NIF_TERM erlaudio_stream_info(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     struct erlaudio_stream_handle* handle;
     const PaStreamInfo *info;
-    if(argc != 1 || !enif_get_resource(env, argv[0], ERLAUDIO_STREAM_RESOURCE, (void **) &handle)) {
+    if(argc != 1 || !get_stream_handle(env, argv[0], &handle)) {
         return enif_make_badarg(env);
     }
     info = Pa_GetStreamInfo(handle->pa);
@@ -824,7 +780,7 @@ static ERL_NIF_TERM erlaudio_stream_info(ErlNifEnv* env, int argc, const ERL_NIF
  */
 static ERL_NIF_TERM erlaudio_stream_is_stopped(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     struct erlaudio_stream_handle* handle;
-    if(argc != 1 || !enif_get_resource(env, argv[0], ERLAUDIO_STREAM_RESOURCE, (void**) &handle)) {
+    if(argc != 1 || !get_stream_handle(env, argv[0], &handle)) {
         return enif_make_badarg(env);
     }
     PaError ret = Pa_IsStreamStopped(handle->pa);
@@ -842,7 +798,7 @@ static ERL_NIF_TERM erlaudio_stream_is_stopped(ErlNifEnv* env, int argc, const E
  */
 static ERL_NIF_TERM erlaudio_stream_is_active(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     struct erlaudio_stream_handle* handle;
-    if(argc != 1 || !enif_get_resource(env, argv[0], ERLAUDIO_STREAM_RESOURCE, (void **) &handle)) {
+    if(argc != 1 || !get_stream_handle(env, argv[0], &handle)) {
         return enif_make_badarg(env);
     }
     PaError ret = Pa_IsStreamActive(handle->pa);
