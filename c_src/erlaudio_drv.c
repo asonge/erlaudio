@@ -6,6 +6,7 @@
 #include "portaudio.h"
 #include "erlaudio_drv.h"
 #include "assert.h"
+#include "memory.h"
 
 static void erlaudio_ringbuf_init(struct erlaudio_ringbuf *buf, size_t length) {
     // printf("Initing for %zu\n", length);
@@ -329,7 +330,7 @@ static int erlaudio_thread_stream_output(struct erlaudio_stream_handle* h) {
             return -1;
         }
         buf->head = (buf->head + bytes_to_write_available) % buf->length;
-        
+
         bytes_to_write_available = erlaudio_ringbuf_avail_data(buf);
         frames_available = Pa_GetStreamWriteAvailable(h->pa);
     }
