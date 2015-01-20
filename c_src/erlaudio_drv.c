@@ -35,7 +35,7 @@ static size_t erlaudio_ringbuf_avail_data(struct erlaudio_ringbuf *buf) {
     return buf->length - (buf->tail - buf->head);
 }
 
-static void erlaudio_ringbuf_write(struct erlaudio_ringbuf *buf, unsigned char *data, int length) {
+static void erlaudio_ringbuf_write(struct erlaudio_ringbuf *buf, unsigned char *data, size_t length) {
     assert(length <= erlaudio_ringbuf_avail_space(buf));
     size_t tail_write = 0;
     size_t tail = buf->tail;
@@ -241,7 +241,7 @@ static void on_unload(ErlNifEnv* env, void* priv_data) {
     Pa_Terminate();
 }
 
-ERL_NIF_INIT(erlaudio_drv, nif_funcs, &on_load, NULL, NULL, &on_unload);
+ERL_NIF_INIT(erlaudio_drv, nif_funcs, &on_load, NULL, NULL, &on_unload)
 
 static int erlaudio_thread_stream_input(struct erlaudio_stream_handle* h) {
     signed long frames_available;
@@ -288,8 +288,8 @@ static int erlaudio_thread_stream_input(struct erlaudio_stream_handle* h) {
 }
 
 static int erlaudio_thread_stream_output(struct erlaudio_stream_handle* h) {
-    signed long frames_available;
-    signed long bytes_available;
+    long frames_available;
+    size_t bytes_available;
     size_t bytes_to_write_available;
     struct erlaudio_ringbuf* buf = h->output_buf;
     size_t head_read = 0;
@@ -512,10 +512,10 @@ static ERL_NIF_TERM erlaudio_get_default_output_device_index(ErlNifEnv* env, int
  * Get a record of the device information
  */
 static ERL_NIF_TERM erlaudio_get_device(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-    unsigned int i;
+    int i;
     const PaDeviceInfo *deviceInfo;
     if(argc != 1
-            || !enif_get_uint(env, argv[0], &i)
+            || !enif_get_int(env, argv[0], &i)
             || i >= Pa_GetDeviceCount()) {
         return enif_make_badarg(env);
     }

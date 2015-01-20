@@ -1,6 +1,6 @@
 -module(erlaudio).
 
--include_lib("erlaudio/include/erlaudio.hrl").
+-include_lib("erlaudio.hrl").
 
 -export([
   default_input_device/0,

@@ -1,6 +1,6 @@
 -module(erlaudio_escript).
 
--include_lib("erlaudio/include/erlaudio.hrl").
+-include("erlaudio.hrl").
 
 -export([main/1]).
 

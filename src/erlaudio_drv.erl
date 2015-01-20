@@ -43,7 +43,7 @@
 
 -on_load(init/0).
 
--include_lib("erlaudio/include/erlaudio.hrl").
+-include("erlaudio.hrl").
 
 -define(APPNAME, erlaudio).
 
