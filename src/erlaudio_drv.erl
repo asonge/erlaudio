@@ -28,7 +28,9 @@
   stream_abort/1,
   stream_info/1,
   stream_is_stopped/1,
-  stream_is_active/1
+  stream_is_active/1,
+  stream_write_available/1,
+  stream_writebuffer_size/1
 ]).
 
 -type api_type() :: directsound | mme | asio | soundmanager | coreaudio | oss | alsa | al | beos | wdmks | jack | wasapi | audiosciencehpi | integer().
@@ -169,4 +171,12 @@ stream_is_stopped(_Ref) ->
 
 -spec stream_is_active(Stream :: stream()) -> boolean().
 stream_is_active(_Ref) ->
+    ?nif_stub.
+
+-spec stream_writebuffer_size(Stream :: stream()) -> {ok, integer(), integer()}.
+stream_writebuffer_size(_Ref) ->
+    ?nif_stub.
+
+-spec stream_write_available(Stream :: stream()) -> integer().
+stream_write_available(_Ref) ->
     ?nif_stub.

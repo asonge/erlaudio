@@ -20,13 +20,29 @@ main(["histogram","-"|Rest]) ->
 main(["histogram", Input]) ->
   main(["histogram", Input, "30"]);
 main(["histogram", Input, Time]) ->
-  % Params = erlaudio:default_input_params(int16),
+  %
   Params = erlaudio:input_device_params(list_to_integer(Input), int16),
   {ok, Handle} = erlaudio:stream_open(Params, undefined, 48000.0, 2048, []),
   io:setopts([{encoding, unicode}]),
   ok = erlaudio:stream_start(Handle),
   erlang:send_after(list_to_integer(Time)*1000, self(), timeout),
   listen_loop(Handle);
+main(["record"]) -> main(["record","test.pcm","20"]);
+main(["record",Filename,Time]) ->
+  {ok, Handle} = erlaudio:stream_open(default, null, 48000.0, 2048, []),
+  ok = erlaudio:stream_start(Handle),
+  erlang:send_after(list_to_integer(Time)*1000, self(), timeout),
+  {ok, Fh} = file:open(Filename, [write]),
+  record_loop(Fh, Handle);
+main(["play"]) -> main(["play","test.pcm"]);
+main(["play",Filename]) ->
+  % #erlaudio_device{index=Idx} = erlaudio:default_output_device()
+  % Output = erlaudio:default_output_params(int16),
+  {ok, Handle} = erlaudio:stream_open(null, default, 48000.0, 2048, []),
+  {ok, Fh} = file:open(Filename, [read]),
+  ok = erlaudio:stream_start(Handle),
+  io:format("START!~n"),
+  play_loop(Fh, Handle);
 main(["pipe"]) -> main(["pipe","-","-"]);
 main(["pipe",Input]) -> main(["pipe",Input,"-"]);
 main(["pipe","-"|Rest]) ->
@@ -56,6 +72,32 @@ main(_) ->
   usage(),
   halt(1).
 
+play_loop(Fh, Handle) ->
+  case erlaudio:stream_write_available(Handle) of
+    ToRead when is_integer(ToRead) andalso ToRead > 8192 ->
+      case file:read(Fh, 8192) of
+        eof ->
+          erlaudio:stream_stop(Handle);
+        {ok, Data} ->
+          erlaudio:stream_write(Handle, Data),
+          play_loop(Fh, Handle)
+      end;
+    ToRead when is_integer(ToRead) ->
+      timer:sleep(100),
+      play_loop(Fh,Handle)
+  end.
+
+record_loop(Fh, Handle) ->
+  {ok, Data} = erlaudio:stream_read(Handle),
+  file:write(Fh, Data),
+  receive
+    timeout ->
+      file:close(Fh),
+      erlaudio:stream_close(Handle)
+  after 0 ->
+    record_loop(Fh, Handle)
+  end.
+
 stream_write(_, _, 0) -> {error, out_of_tries};
 stream_write(Handle, Data, Tries) ->
   case erlaudio:stream_write(Handle, Data) of
@@ -66,7 +108,7 @@ stream_write(Handle, Data, Tries) ->
   end.
 
 flush(H, Count) ->
-  receive {erlaudio_pcmdata, H, _} -> flush(H, Count+1)
+  receive {erlaudio_pcmdata, H, _, _} -> flush(H, Count+1)
   after 0 -> Count
   end.
 
@@ -81,10 +123,9 @@ flush(H, Count) ->
 %   io_lib:format("~p ~p", [proplists:get_value(sbcs_usage,Stats),
 %                       proplists:get_value(mbcs_usage,Stats)]).
 
-
 malloc_stats() ->
-  Calls = [ {Type,proplists:get_value(calls,Mem)}
-            || {{driver_alloc,_}=Type,Mem} <- recon_alloc:allocators() ],
+  Calls = [ {N,proplists:get_value(calls,Info)}
+            || {_,N,Info} <- erlang:system_info({allocator,driver_alloc}) ],
   CallInfo = [ {Type,
                 lists:keyfind(driver_alloc,1,C),
                 lists:keyfind(driver_free,1,C)} || {Type,C} <- Calls ],
@@ -99,6 +140,7 @@ listen_flag() ->
   erlaudio:stream_start(H),
   timer:sleep(100),
   erlaudio:stream_close(H),
+  % io:format("Grabbed ~p~n", [flush(H, 0)]),
   % io:format("Grabbed ~p\t~p\t~p\t~p\t~p~n",[
   %   flush(H, 0),
   %   recon_alloc:memory(used,current),
@@ -108,6 +150,7 @@ listen_flag() ->
   % ]),
   {Allocs,Frees} = malloc_stats(),
   io:format("Flush/Allocs/Frees/Diff: ~p\t~p\t~p\t~p~n", [flush(H,0),Allocs,Frees,Allocs-Frees]),
+  garbage_collect(),
   % io:put_chars([mem_stats2(),$\n]),
   case should_stop() of
     true -> ok;
@@ -115,7 +158,7 @@ listen_flag() ->
   end.
 
 listen_pipe(Handle) ->
-  {ok, Data} = erlaudio:stream_recv(Handle),
+  {ok, Data} = erlaudio:stream_read(Handle),
   ok = stream_write(Handle, Data, 3),
   % hist(Data, {0,0,0,0,
   %             0,0,0,0,
@@ -127,7 +170,7 @@ listen_pipe(Handle) ->
   end.
 
 listen_loop(Handle) ->
-  {ok, Data} = erlaudio:stream_recv(Handle),
+  {ok, Data} = erlaudio:stream_read(Handle),
   hist(Data, {0,0,0,0,
               0,0,0,0,
               0,0,0,0,
