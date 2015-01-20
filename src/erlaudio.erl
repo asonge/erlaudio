@@ -1,6 +1,6 @@
 -module(erlaudio).
 
--include_lib("erlaudio/include/erlaudio.hrl").
+-include_lib("erlaudio.hrl").
 
 -export([
   default_input_device/0,
@@ -17,15 +17,20 @@
 ]).
 -export([
   stream_format_supported/3,
+  stream_open/4,
   stream_open/5,
   stream_start/1,
   stream_info/1,
-  stream_recv/1,
+  stream_read/1,
   stream_write/2,
   stream_abort/1,
+  stream_stop/1,
   stream_close/1,
   stream_active/1,
-  stream_stopped/1
+  stream_stopped/1,
+  stream_write_available/1,
+  stream_write_available/2,
+  stream_writebuffer_size/1
 ]).
 -export([
   portaudio_version/0
@@ -117,15 +122,16 @@ device_params(#erlaudio_device{index=Index}=_Device, Channels, SampleFormat, Sug
 stream_write(Handle, Data) ->
   erlaudio_drv:stream_write(Handle, Data).
 
-stream_recv(Handle) ->
+stream_read(Handle) ->
   receive
     {erlaudio_pcmdata, Handle, Data} -> {ok, Data};
+    {erlaudio, Handle, closed} -> eof;
     {erlaudio_error, Handle, Error} -> {error, Error}
   % As a hack, every second we don't have data, we should probably check to see
   % if we've still got a listening handle
   after 2000 ->
     case erlaudio_drv:stream_is_active(Handle) of
-      true -> stream_recv(Handle); % We loop forever.
+      true -> stream_read(Handle); % We loop forever.
       false -> {error, stream_closed};
       {error, Reason} -> {error, Reason}
     end
@@ -140,27 +146,86 @@ stream_recv(Handle) ->
 stream_format_supported(Input, Output, SampleRate) ->
   erlaudio_drv:stream_format_supported(Input, Output, SampleRate).
 
-%% @doc start a stream server
+stream_open(Input, Output, SampleRate, FramesPerBuffer) ->
+stream_open(Input, Output, SampleRate, FramesPerBuffer, []).
+
 -spec stream_open(
-    Input :: #erlaudio_device_params{} | null | undefined,
-    Output :: #erlaudio_device_params{} | null | undefined,
+    Input :: #erlaudio_device_params{} | default | null | undefined,
+    Output :: #erlaudio_device_params{} | default | null | undefined,
     SampleRate :: float(),
     FramesPerBuffer :: integer(),
     Flags :: [stream_option()]
-) -> {ok, pid()}.
+) -> {ok, pid()} | {error, any()}.
+stream_open(default, Output, SampleRate, FramesPerBuffer, Flags) ->
+    Input = default_input_params(int16),
+    stream_open(Input, Output, SampleRate, FramesPerBuffer, Flags);
+stream_open(Input, default, SampleRate, FramesPerBuffer, Flags) ->
+    Output = default_output_params(int16),
+    stream_open(Input, Output, SampleRate, FramesPerBuffer, Flags);
+%% @doc start a stream server
 stream_open(Input, Output, SampleRate, FramesPerBuffer, Flags) ->
   erlaudio_drv:stream_open(Input, Output, SampleRate, FramesPerBuffer, Flags).
 
-stream_start(Handle)   -> erlaudio_drv:stream_start(Handle).
-%% @doc stop/destroy a stream server, ignoring any remaining buffers
-stream_abort(Handle)   -> erlaudio_drv:stream_abort(Handle).
-%% @doc stop/destroy a stream server, wait for buffers to flush
-stream_close(Handle)   -> erlaudio_drv:stream_close(Handle).
+stream_start(Handle) ->
+  erlaudio_drv:stream_start(Handle),
+  receive
+    {erlaudio, Handle, started} -> ok
+  after 30000 -> {error, timeout}
+  end.
+%% @doc stop a stream, ignoring any remaining buffers
+stream_abort(Handle) ->
+  erlaudio_drv:stream_abort(Handle),
+  drain(Handle).
+%% @doc stop/destroy a stream
+stream_close(Handle) ->
+  erlaudio_drv:stream_close(Handle),
+  drain(Handle).
+%% @doc stop a stream, block until audio flushes out the write buffers.
+stream_stop(Handle) ->
+  case erlaudio_drv:stream_stop(Handle) of
+    ok ->
+      receive
+        {erlaudio, Handle, closed} -> drain(Handle)
+      after 30000 -> drain(Handle), {error, timeout}
+      end;
+    Error ->
+      Error
+  end.
 %% @doc get stream info
 stream_info(Handle)    -> erlaudio_drv:stream_info(Handle).
 stream_active(Handle)  -> erlaudio_drv:stream_is_active(Handle).
 stream_stopped(Handle) -> erlaudio_drv:stream_is_stopped(Handle).
+stream_writebuffer_size(Handle) -> erlaudio_drv:stream_writebuffer_size(Handle).
+stream_write_available(Handle) -> stream_write_available(Handle, available).
+stream_write_available(Handle, available) ->
+  case erlaudio_drv:stream_write_available(Handle) of
+    {ok, Avail, _} -> Avail;
+    Else -> Else
+  end;
+stream_write_available(Handle, internal) ->
+  case erlaudio_drv:stream_write_available(Handle) of
+    {ok, _, Internal} -> Internal;
+    Else -> Else
+  end;
+stream_write_available(Handle, total) ->
+  case erlaudio_drv:stream_write_available(Handle) of
+    {ok, Avail, Internal} -> Avail + Internal;
+    Else -> Else
+  end.
 
 %% @doc Return version information for the portaudio we're linked to
 -spec portaudio_version() -> {integer(), binary()}.
 portaudio_version()    -> erlaudio_drv:get_pa_version().
+
+drain(Handle) ->
+  Res = receive
+    {erlaudio_pcmdata, Handle, _} -> ok;
+    {erlaudio, Handle, Msg} when Msg/=closed -> ok;
+    {erlaudio_error, Handle, _} -> ok;
+    {erlaudio, Handle, closed} -> done
+  after 2000 -> done
+  end,
+  case Res of
+    ok -> drain(Handle);
+    done -> ok
+  end.

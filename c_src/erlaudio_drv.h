@@ -32,7 +32,8 @@ struct erlaudio_ringbuf
 struct erlaudio_stream_handle
 {
     struct erlaudio_thread_mgr* mgr;
-
+    int          started;
+    int          should_stop;
     ErlNifTid    thread;
 
     // Stream related
@@ -82,6 +83,8 @@ static ERL_NIF_TERM erlaudio_stream_write                    (ErlNifEnv* env, in
 static ERL_NIF_TERM erlaudio_stream_info                     (ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM erlaudio_stream_is_stopped               (ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 static ERL_NIF_TERM erlaudio_stream_is_active                (ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM erlaudio_stream_write_available          (ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
+static ERL_NIF_TERM erlaudio_stream_writebuffer_size         (ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
@@ -118,7 +121,9 @@ static ErlNifFunc nif_funcs[] =
     // READ ONLY BITS, NO OWNERSHIP CHECK NEEDED
     {"stream_info",                     1, erlaudio_stream_info},
     {"stream_is_stopped",               1, erlaudio_stream_is_stopped},
-    {"stream_is_active",                1, erlaudio_stream_is_active}
+    {"stream_is_active",                1, erlaudio_stream_is_active},
+    {"stream_write_available",          1, erlaudio_stream_write_available},
+    {"stream_writebuffer_size",         1, erlaudio_stream_writebuffer_size}
 };
 
 static struct err_to_str pa_errors[] = {
