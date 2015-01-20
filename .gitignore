@@ -6,3 +6,5 @@ deps
 .rebar
 *.pdb
 priv/erlaudio_drv.*
+*.dump
+Makefile.auto.win
