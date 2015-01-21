@@ -28,6 +28,8 @@ defmodule Erlaudio.Mixfile do
 
   def project do
     [app: :erlaudio,
+    description: "Erlang audio bindings to portaudio",
+    package: package,
     version: "0.2.0",
     language: :erlang,
     compilers: [:erlaudio, :erlang, :app],
@@ -42,5 +44,14 @@ defmodule Erlaudio.Mixfile do
 
   defp deps do
     []
+  end
+
+  defp package do
+    %{
+      contributors: ["Alex Songe"],
+      files: ~w"c_src include priv src Makefile Makefile.win README* CHANGELOG* LICENSE*",
+      licenses: ["Apache 2"],
+      links: %{"Github" => "https://github.com/asonge/erlaudio"}
+    }
   end
 end
