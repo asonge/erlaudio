@@ -32,7 +32,8 @@ defmodule Erlaudio.Mixfile do
     language: :erlang,
     compilers: [:erlaudio, :erlang, :app],
     # aliases: [clean: ["clean", "clean.erlaudio"]],
-    deps: deps]
+    deps: deps,
+    escript: [main_module: :erlaudio_escript, language: :erlang, app: nil]]
   end
 
   def application do
