@@ -71,6 +71,13 @@ init() ->
     Path ->
       Path
   end,
+  case os:type() of
+    {win32, _} ->
+      EnvPath = os:getenv("PATH"),
+      os:putenv("PATH", EnvPath++";"++PrivDir),
+      os:cmd("echo %PATH%");
+    _ -> ok
+  end,
   erlang:load_nif(filename:join(PrivDir, ?MODULE), 0).
 
 
