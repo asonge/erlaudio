@@ -8,3 +8,4 @@ deps
 priv/erlaudio_drv.*
 *.dump
 _build
+Makefile.auto.win
