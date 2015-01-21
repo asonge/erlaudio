@@ -1,0 +1,8 @@
+{application, erlaudio,
+ [
+  {description, "Portaudio bindings for erlang."},
+  {vsn, "0.2.0"},
+  {registered, []},
+  {applications, []},
+  {env, []}
+ ]}.

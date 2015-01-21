@@ -1,0 +1,39 @@
+!IF [where /Q Makefile.auto.win]
+# The file doesn't exist, so don't include it.
+!ELSE
+!INCLUDE Makefile.auto.win
+!ENDIF
+
+NMAKE = nmake /$(MAKEFLAGS)
+
+ERL_CFLAGS = -I"$(ERLANG_LIB_PATH)/include" \
+             -I"$(ERTS_INCLUDE_PATH)/include"
+
+ERL_LDFLAGS = /LIBPATH:"$(ERLANG_LIB_PATH)/lib" \
+              /LIBPATH:"priv" \
+              erl_interface.lib ei.lib portaudio_x64.lib
+
+CC = cl.exe
+LINK = link.exe
+
+all: priv/erlaudio_drv.dll
+
+Makefile.auto.win:
+	echo # Auto-generated as part of Makefile.win, do not modify. > $@
+	erl -eval "io:format(\"~s~n\", [lists:concat([\"ERTS_INCLUDE_PATH=\", code:root_dir(), \"/erts-\", erlang:system_info(version)])])" -s init stop -noshell >> $@
+	erl -eval "io:format(\"~s~n\", [lists:concat([\"ERLANG_LIB_PATH=\", code:lib_dir(erl_interface)])])" -s init stop -noshell >> $@
+
+!IFDEF ERTS_INCLUDE_PATH
+c_src/erlaudio_drv.o: c_src/erlaudio_drv.c c_src/erlaudio_drv.h
+	$(CC) /c $(CFLAGS) /Zi /Wall $(ERL_CFLAGS) c_src/erlaudio_drv.c /Fo$@
+priv/erlaudio_drv.dll: c_src/erlaudio_drv.o
+	$(LINK) c_src/erlaudio_drv.o /DLL /INCREMENTAL $(ERL_LDFLAGS) /OUT:$@
+!ELSE
+priv/erlaudio_drv.dll: Makefile.auto.win
+	$(NMAKE) /F Makefile.win $@
+!ENDIF
+
+clean:
+	del c_src\erlaudio_drv.o
+	del priv\erlaudio_drv.*
+	del Makefile.auto.win
