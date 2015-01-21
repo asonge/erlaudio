@@ -30,7 +30,7 @@ defmodule Erlaudio.Mixfile do
     [app: :erlaudio,
     description: "Erlang audio bindings to portaudio",
     package: package,
-    version: "0.2.0",
+    version: "0.2.2",
     language: :erlang,
     compilers: [:erlaudio, :erlang, :app],
     # aliases: [clean: ["clean", "clean.erlaudio"]],
