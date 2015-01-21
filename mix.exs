@@ -30,7 +30,7 @@ defmodule Erlaudio.Mixfile do
     [app: :erlaudio,
     description: "Erlang audio bindings to portaudio",
     package: package,
-    version: "0.2.2",
+    version: "0.2.3",
     language: :erlang,
     compilers: [:erlaudio, :erlang, :app],
     # aliases: [clean: ["clean", "clean.erlaudio"]],
@@ -49,7 +49,7 @@ defmodule Erlaudio.Mixfile do
   defp package do
     %{
       contributors: ["Alex Songe"],
-      files: ~w"c_src include priv src Makefile Makefile.win README* CHANGELOG* LICENSE*",
+      files: ~w"c_src include priv src Makefile Makefile.win mix.exs README* CHANGELOG* LICENSE*",
       licenses: ["Apache 2"],
       links: %{"Github" => "https://github.com/asonge/erlaudio"}
     }
