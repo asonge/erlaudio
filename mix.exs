@@ -39,7 +39,7 @@ defmodule Erlaudio.Mixfile do
   end
 
   def application do
-    [applications: []]
+    [applications: [], mod: []]
   end
 
   defp deps do
