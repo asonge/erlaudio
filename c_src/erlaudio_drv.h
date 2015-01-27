@@ -1,5 +1,7 @@
 #include "inttypes.h"
 #include "stdint.h"
+#include "portaudio.h"
+#include "erl_nif.h"
 
 struct int_to_str {
     PaSampleFormat num;
@@ -127,7 +129,6 @@ static ErlNifFunc nif_funcs[] =
 };
 
 static struct err_to_str pa_errors[] = {
-    { paNotInitialized,                        "not_initialized" },
     { paNotInitialized,                        "not_initialized" },
     { paUnanticipatedHostError,                "unanticipated_host_error" },
     { paInvalidChannelCount,                   "invalid_number_of_channels" },

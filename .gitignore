@@ -9,3 +9,6 @@ priv/erlaudio_drv.*
 *.dump
 Makefile.auto.win
 _build
+docs/*
+*.plt
+test.*

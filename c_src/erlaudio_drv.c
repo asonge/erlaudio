@@ -1,12 +1,10 @@
-#include "erl_nif.h"
 #include "inttypes.h"
 #include "string.h"
 #include "stdint.h"
 #include "stdio.h"
-#include "portaudio.h"
-#include "erlaudio_drv.h"
 #include "assert.h"
 #include "memory.h"
+#include "erlaudio_drv.h"
 
 static void erlaudio_ringbuf_init(struct erlaudio_ringbuf *buf, size_t length) {
     buf->length = length;
@@ -118,9 +116,12 @@ static int pa_error_message(void *resource, int err, ErlNifPid* pid) {
     if(err != paNoError) {
         ErlNifEnv* env = enif_alloc_env();
         enif_send(NULL, pid, env, enif_make_tuple3(env,
-            enif_make_atom(env, "erlaudio_error"),
+            enif_make_atom(env, "erlaudio"),
             enif_make_resource(env, resource),
-            enif_make_atom(env, pa_error_to_char(err))
+            enif_make_tuple2(env,
+              enif_make_atom(env, "error"),
+              enif_make_atom(env, pa_error_to_char(err))
+            )
         ));
         enif_free_env(env);
     }
@@ -263,9 +264,12 @@ static int erlaudio_thread_stream_input(struct erlaudio_stream_handle* h) {
         if(err==paNoError) {
             env = enif_alloc_env();
             enif_send(NULL, h->reader_pid, env, enif_make_tuple3(env,
-                enif_make_atom(env, "erlaudio_pcmdata"),
+                enif_make_atom(env, "erlaudio"),
                 enif_make_resource(env, h),
-                enif_make_binary(env, &input_bin)
+                enif_make_tuple2(env,
+                  enif_make_atom(env, "pcmdata"),
+                  enif_make_binary(env, &input_bin)
+                )
             ));
             enif_release_binary(&input_bin);
             enif_free_env(env);

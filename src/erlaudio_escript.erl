@@ -1,3 +1,4 @@
+%% @hidden
 -module(erlaudio_escript).
 
 -include("erlaudio.hrl").
@@ -108,7 +109,7 @@ stream_write(Handle, Data, Tries) ->
   end.
 
 flush(H, Count) ->
-  receive {erlaudio_pcmdata, H, _, _} -> flush(H, Count+1)
+  receive {erlaudio, H, {pcmdata_, _}} -> flush(H, Count+1)
   after 0 -> Count
   end.
 

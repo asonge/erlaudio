@@ -23,6 +23,17 @@ defmodule Mix.Tasks.Compile.Erlaudio do
 
 end
 
+defmodule Mix.Tasks.Edoc do
+  @shortdoc "Make docs using edoc (erlang docs)"
+
+  def run(_) do
+    {result, _error_code} = System.cmd("rebar", ["doc"], stderr_to_stdout: true)
+    Mix.shell.info result
+    :ok
+  end
+
+end
+
 defmodule Erlaudio.Mixfile do
   use Mix.Project
 
@@ -33,7 +44,7 @@ defmodule Erlaudio.Mixfile do
     version: "0.2.3",
     language: :erlang,
     compilers: [:erlaudio, :erlang, :app],
-    # aliases: [clean: ["clean", "clean.erlaudio"]],
+    aliases: [docs: ["edoc"]],
     deps: deps,
     escript: [main_module: :erlaudio_escript, language: :erlang, app: nil]]
   end

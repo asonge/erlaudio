@@ -1,3 +1,9 @@
+%% @headerfile "erlaudio.hrl"
+%% @doc
+%% This is a separate, private, less-supported API for interacting more directly
+%% with the erlaudio nif. It's less natural and a bit harder to use, and
+%% functions directly invoke the nifs.
+%%
 -module(erlaudio_drv).
 
 -export([
@@ -33,13 +39,11 @@
   stream_writebuffer_size/1
 ]).
 
--type api_type() :: directsound | mme | asio | soundmanager | coreaudio | oss | alsa | al | beos | wdmks | jack | wasapi | audiosciencehpi | integer().
--type pa_error() :: {error, atom()}.
-% THIS IS WRONG-type device_option() :: {channel, pos_integer()} | {sample_format, format()} | {latency, float()}.
--type stream_option() :: noclip | nodither | nodrop_input.
--opaque stream() :: reference().
+-type handle() :: erlaudio:handle().
 
--export_type([stream/0, stream_option/0]).
+-type api_type() :: directsound | mme | asio | soundmanager | coreaudio | oss | alsa | al | beos | wdmks | jack | wasapi | audiosciencehpi | integer().
+
+-export_type([handle/0]).
 
 -on_load(init/0).
 
@@ -80,110 +84,142 @@ init() ->
   end,
   erlang:load_nif(filename:join(PrivDir, ?MODULE), 0).
 
-
+%% @doc Get the version info from portaudio
 -spec get_pa_version() -> {integer(), binary()}.
 get_pa_version() ->
-    ?nif_stub.
+  ?nif_stub.
 
+%% @doc Get the default hostapi index
 -spec get_default_hostapi_index() -> integer().
 get_default_hostapi_index() ->
-    ?nif_stub.
+  ?nif_stub.
 
+%% @doc Get the device index from the hostapi
 -spec get_device_index_from_hostapi(HostApiIndex :: integer(), HostApiDeviceIndex :: integer()) -> integer().
 get_device_index_from_hostapi(_HostApiIndex, _HostApiDeviceIndex) ->
   ?nif_stub.
 
+%% @doc Get the total number of supported hostapi's
 -spec get_hostapi_count() -> integer().
 get_hostapi_count() ->
   ?nif_stub.
 
+%% @doc Get the hostapi index from the type
 -spec get_hostapi_index_from_type(Type :: api_type()) -> integer().
 get_hostapi_index_from_type(_Type) ->
   ?nif_stub.
 
+%% @doc Get the hostapi info by the hostapi index
 -spec get_hostapi_info(Index :: integer()) -> #erlaudio_hostapi_info{}.
 get_hostapi_info(_Index) ->
   ?nif_stub.
 
+%% @doc Get the default output device's index
 -spec get_default_input_device_index() -> integer().
 get_default_input_device_index() ->
-    ?nif_stub.
+  ?nif_stub.
 
+%% @doc Get the default output device's index
 -spec get_default_output_device_index() -> integer().
 get_default_output_device_index() ->
-    ?nif_stub.
+  ?nif_stub.
 
+%% @doc Get the device by index
 -spec get_device(Index :: integer()) -> #erlaudio_device{}.
 get_device(_Index) ->
-    ?nif_stub.
+  ?nif_stub.
 
+%% @doc Get the number of devices
 -spec get_device_count() -> integer().
 get_device_count() ->
-    ?nif_stub.
+  ?nif_stub.
 
+%% @doc Is this stream supported?
 -spec stream_format_supported(
     Input :: #erlaudio_device_params{} | null | undefined,
     Output :: #erlaudio_device_params{} | null | undefined,
     SampleRate :: float()
 ) -> ok | pa_error().
 stream_format_supported(_Input, _Output, _SampleRate) ->
-    ?nif_stub.
+  ?nif_stub.
 
+%% @doc Open a stream
+-spec stream_open(
+    Input  :: #erlaudio_device_params{} | null | undefined,
+    Output :: #erlaudio_device_params{} | null | undefined,
+    SampleRate :: float(),
+    FramesPerBuffer :: integer(),
+    Flags :: [stream_option()]
+) -> {ok, handle()} | pa_error().
 stream_open(_Input, _Output, _SampleRate, _FramesPerBuffer, _Flags) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_start(Stream :: stream()) -> ok | pa_error().
+%% @doc Stops the stream immediately
+-spec stream_start(handle()) -> ok | pa_error() | {error, threadfailed}.
 stream_start(_Ref) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_close(Stream :: stream()) -> ok | pa_error().
+%% @doc Stops the stream immediately, and closes the resource
+-spec stream_close(handle()) -> ok | pa_error().
 stream_close(_Ref) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_stop(Stream :: stream()) -> ok | pa_error().
+%% @doc Stops the stream, but blocks while the buffers empty
+-spec stream_stop(handle()) -> ok | pa_error().
 stream_stop(_Ref) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_abort(Stream :: stream()) -> ok | pa_error().
+%% @doc Stops the stream immediately
+-spec stream_abort(handle()) -> ok | pa_error().
 stream_abort(_Ref) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_owner(Stream :: stream()) -> pid().
+%% @doc Get the stream "owner", or where control messages go
+-spec stream_owner(handle()) -> pid().
 stream_owner(_Ref) ->
   ?nif_stub.
 
--spec stream_owner(Stream :: stream(), Pid :: pid()) -> ok | pa_error().
+%% @doc Set the stream "owner", or where control messages go
+-spec stream_owner(handle(), pid()) -> ok | pa_error().
 stream_owner(_Ref, _Pid) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_reader(Stream :: stream()) -> pid().
+%% @doc Get the stream "reader", or where pcmdata messages go
+-spec stream_reader(handle()) -> pid().
 stream_reader(_Ref) ->
   ?nif_stub.
 
--spec stream_reader(Stream :: stream(), Pid :: pid()) -> ok | pa_error().
+%% @doc Set the stream "reader", or where pcmdata messages go
+-spec stream_reader(handle(), pid()) -> ok | pa_error().
 stream_reader(_Ref, _Pid) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_write(Stream :: stream(), Data :: iolist()) -> ok | pa_error().
+%% @doc Write stream data into our ringbuffer
+-spec stream_write(handle(), iodata()) -> ok | {error, toobig | badbinsize}.
 stream_write(_Ref, _Data) ->
   ?nif_stub.
 
--spec stream_info(Stream :: stream()) -> #erlaudio_stream_info{} | pa_error().
+%% @doc Get stream info
+-spec stream_info(handle()) -> #erlaudio_stream_info{}.
 stream_info(_Ref) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_is_stopped(Stream :: stream()) -> boolean().
+%% @doc Is the stream stopped?
+-spec stream_is_stopped(handle()) -> boolean() | pa_error().
 stream_is_stopped(_Ref) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_is_active(Stream :: stream()) -> boolean().
+%% @doc Is the stream active?
+-spec stream_is_active(handle()) -> boolean() | pa_error().
 stream_is_active(_Ref) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_writebuffer_size(Stream :: stream()) -> {ok, integer(), integer()}.
+%% @doc Get information about the state of the write buffers.
+-spec stream_writebuffer_size(handle()) -> integer() | pa_error() | {error, notrunning}.
 stream_writebuffer_size(_Ref) ->
-    ?nif_stub.
+  ?nif_stub.
 
--spec stream_write_available(Stream :: stream()) -> integer().
+%% @doc Get information about the state of the write buffers.
+-spec stream_write_available(handle()) -> {ok, RingBuffer :: integer(), Internal :: integer()} | pa_error() | {error, notrunning}.
 stream_write_available(_Ref) ->
-    ?nif_stub.
+  ?nif_stub.
