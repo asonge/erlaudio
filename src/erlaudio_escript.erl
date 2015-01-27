@@ -38,8 +38,9 @@ main(["record",Filename,Time]) ->
 main(["play"]) -> main(["play","test.pcm"]);
 main(["play",Filename]) ->
   % #erlaudio_device{index=Idx} = erlaudio:default_output_device()
-  % Output = erlaudio:default_output_params(int16),
-  {ok, Handle} = erlaudio:stream_open(null, default, 48000.0, 2048, []),
+  Output0 = erlaudio:default_output_params(int16),
+  Output = Output0#erlaudio_device_params{channel_count=2},
+  {ok, Handle} = erlaudio:stream_open(null, Output, 48000.0, 2048, []),
   {ok, Fh} = file:open(Filename, [read]),
   ok = erlaudio:stream_start(Handle),
   io:format("START!~n"),
