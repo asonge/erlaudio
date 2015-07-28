@@ -60,7 +60,7 @@ nif_stub_error(Line) ->
 -endif.
 
 init() ->
-  PrivDir = case code:priv_dir(?MODULE) of
+  PrivDir = case code:priv_dir(erlaudio) of
     {error, bad_name} ->
       try escript:script_name() of
         Filename ->
